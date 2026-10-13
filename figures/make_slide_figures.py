@@ -6,7 +6,7 @@ honestly: extruded obstacles, the range scan as a ring at flight height.
 
     python figures/make_slide_figures.py
 
-Writes figures/d1_noise.png ... d5_shift.png plus two generic scenes. Every file
+Writes figures/d1_noise.png ... d6_representation.png plus two generic scenes. Every file
 is transparent, so it drops onto any slide background.
 """
 
@@ -390,6 +390,69 @@ def figure_d5(out):
     save(fig, out / "d5_shift.png", tight=False)
 
 
+def figure_d6(out, n_components=4):
+    """D6: one scan, three representations of it. What is left after compression."""
+    world = make_world(seed=0, n_obstacles=3)
+    # a situation where the two engineered features point in clearly different
+    # directions, and the obstacle stands behind the drone as seen from the viewer,
+    # otherwise the wall hides the beams the slide is about
+    for seed in range(1000):
+        rng = np.random.default_rng(seed)
+        state = sample_state(world, rng)
+        if not (5.0 < state.x < world.width - 5.0 and 5.0 < state.y < world.height - 5.0):
+            continue
+        scan = range_scan(world, state)
+        i_min = int(np.argmin(scan))
+        offset = abs((i_min * 360 / len(scan) + 180) % 360 - 180)
+        towards = np.degrees(state.heading + i_min * 2 * np.pi / len(scan)) % 360
+        if (1.3 < scan[i_min] < 2.8 and 30 < offset < 150 and scan[0] < 4.8
+                and (towards < 110 or towards > 340)):
+            break
+    else:
+        raise RuntimeError("no suitable state found. Widen the seed range.")
+
+    # a plain PCA as the learned compression, fitted on scans of the same world.
+    # Self contained on purpose, like degrade(): no solution code behind the slides
+    _, pool = generate_dataset(world, n_samples=4000, seed=6)
+    mean = pool.mean(axis=0)
+    _, _, vt = np.linalg.svd(pool - mean, full_matrices=False)
+    basis = vt[:n_components]
+    compressed = np.clip(mean + (scan - mean) @ basis.T @ basis, 0.0, MAX_RANGE)
+
+    fig, ax = plt.subplots(figsize=WORLD_FIG)
+    draw_world(ax, world)
+    angles = state.heading + np.linspace(0, 2 * np.pi, len(scan), endpoint=False)
+
+    def ring(dists):
+        pts = [iso(state.x + d * np.cos(a), state.y + d * np.sin(a), FLIGHT_ALT)
+               for a, d in zip(angles, dists)]
+        pts.append(pts[0])
+        return [p[0] for p in pts], [p[1] for p in pts]
+
+    def beam(index, color):
+        d = scan[index]
+        tip = iso(state.x + d * np.cos(angles[index]), state.y + d * np.sin(angles[index]),
+                  FLIGHT_ALT)
+        ax.plot(*zip(iso(state.x, state.y, FLIGHT_ALT), tip), color=color, lw=2.4, zorder=9)
+        ax.plot(*tip, marker="o", ms=5.5, color=color, mec="white", mew=1.0, zorder=10)
+
+    draw_scan(ax, state, scan)
+    ax.plot(*ring(compressed), color=AMBER, lw=2.0, zorder=7)
+    beam(int(np.argmin(scan)), RED)
+    beam(0, MAGENTA)
+    draw_drone(ax, state, arrow=False)
+    finish(ax, state, zoom=7.6)
+    ax.legend(handles=[
+        Line2D([], [], color=BLUE, lw=1.0, marker="o", ms=3.2, alpha=0.8,
+               label=f"raw scan, {len(scan)} values"),
+        Line2D([], [], color=AMBER, lw=2.0, label=f"compressed to {n_components} values"),
+        Line2D([], [], color=RED, lw=2.4, label="feature d_min"),
+        Line2D([], [], color=MAGENTA, lw=2.4, label="feature d_front"),
+    ], loc="lower left", fontsize=7.5, frameon=False, handlelength=1.6,
+       handletextpad=0.5, labelspacing=0.35)
+    save(fig, out / "d6_representation.png")
+
+
 def figure_generic(out):
     """The shared scene: one drone, one 360 degree scan, one label."""
     world = make_world(seed=0, n_obstacles=3)
@@ -418,6 +481,7 @@ def main() -> int:
     figure_d3(out)
     figure_d4(out)
     figure_d5(out)
+    figure_d6(out)
     return 0
 
 

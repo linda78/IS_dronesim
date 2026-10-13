@@ -1,6 +1,6 @@
 # dronesim
 
-A tiny drone simulator that produces datasets for the five assignments D1 to D5.
+A tiny drone simulator that produces datasets for the six assignments D1 to D6.
 
 A quadrotor sits somewhere in a field with rectangular obstacles and flies straight
 ahead. A 32 beam range scan tells you what is around it. The label says whether it
@@ -9,20 +9,31 @@ not a physics engine and not an animation.
 
 ## Installation
 
+You need Python 3.10 or newer. Clone the repository and install it into your
+environment:
+
 ```bash
-pip install -e .          # from this folder
+git clone https://github.com/linda78/IS_dronesim
+cd IS_dronesim
+pip install -e ".[dev]"
 ```
 
-or simply copy the `dronesim/` folder next to your own code. You need Python 3.10 or
-newer and `numpy`, `pandas` and `matplotlib`. For the baseline example you also need
-`scikit-learn`.
+This installs the simulator with its three dependencies (`numpy`, `pandas`,
+`matplotlib`) plus `pytest` and `scikit-learn` for the tests and the baseline example.
+The quotation marks are required in zsh, the default shell on macOS. If you only want
+the simulator, `pip install -e .` is enough.
 
 Check that everything works:
 
 ```bash
-python examples/01_generate_and_plot.py     # writes data/train.csv and data/train_scans.npy
+python examples/01_generate_and_plot.py     # 2000 samples, one plot, writes data/train.csv and data/train_scans.npy
 python examples/02_train_baseline.py        # Random Forest on the tabular features
+pytest                                      # the test suite, see below
 ```
+
+The first example prints the class balance and plots one situation with its range scan
+and trajectory. The second one loads that dataset and trains a Random Forest, so you see
+the way from a dataframe to a model. Both run in under a minute without a GPU.
 
 ## The five functions you need
 
@@ -72,13 +83,15 @@ Two consequences worth knowing:
 
 * `ttc` (`d_front / speed`) is a **feature**, not the label. It looks like the answer but
   it is not: the drone is wider than a single beam, the sensor only sees 5 m, and wind
-  bends the path. A single threshold on `ttc` gets stuck around 96 % accuracy.
+  bends the path. A single threshold on `ttc` stays below 97 % accuracy, and a test
+  enforces that. If your model does clearly better, it has learned something. If it does
+  clearly worse, look at your preprocessing first.
 * The class balance you get with the default settings is roughly 28 % collisions. It is
   what the geometry produces, nothing was filtered.
 
 ## What you may change
 
-**Nothing inside `dronesim/`. Everything outside of it.**
+**The one rule: change nothing inside `dronesim/` and everything outside of it.**
 
 The package is deliberately neutral: it knows nothing about your topic. You build your
 dataset by choosing the arguments of `make_world` and `generate_dataset`, and by
@@ -137,6 +150,16 @@ city  = make_world(seed=0, n_obstacles=12, max_size=2.5, min_gap=0.8,
 Increase `n_obstacles` and `wind` / `gust_strength` in steps to get target environments
 with increasing shift. Train on the field only, test on each city, then add 1 %, 5 % and
 20 % of the target data to your training set and repeat.
+
+### D6 - Scan representation and compression
+
+Generate one dataset and keep it fixed. Only the input changes: hand the classifiers
+the raw `scans`, the engineered features in `df[FEATURE_NAMES]` (or a few of them), and
+compressed versions of the scan with fewer and fewer values, for example the minimum
+per sector, a PCA, or the bottleneck of an autoencoder in PyTorch. Fit every compression
+on the training rows only. The scan does not contain the speed of the drone, but the
+label depends on it, so pass `df["speed"]` alongside every scan based representation,
+or say clearly that you leave it out.
 
 ## Neural networks
 
